@@ -1,0 +1,23 @@
+# Secrets — never commit these
+.env
+*.env
+secrects.toml
+.databrickscfg
+
+# Python
+.venv
+__pycache__/
+
+# dlt (data load tool)
+.dlt/
+
+# dbt
+target/
+dbt_packages/
+logs/
+
+# DuckDB
+*.duckdb
+
+# VS Code
+.vscode/
