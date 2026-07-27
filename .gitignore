@@ -19,5 +19,8 @@ logs/
 # DuckDB
 *.duckdb
 
+# Raw JSON landing zone (regeneratable from source API)
+data/raw/
+
 # VS Code
 .vscode/
