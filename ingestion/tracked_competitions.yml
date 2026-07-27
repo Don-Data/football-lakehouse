@@ -1,0 +1,18 @@
+# ingestion/tracked_competitions.yml
+# Free-tier competitions we've deliberately chosen to track.
+# Confirmed against /v4/competitions on 2026-07-27.
+# If check_for_new_competitions() flags a new one, add it here deliberately.
+competition_ids:
+  - 2013
+  - 2016
+  - 2021
+  - 2001
+  - 2018
+  - 2015
+  - 2002
+  - 2019
+  - 2003
+  - 2017
+  - 2152
+  - 2014
+  - 2000
