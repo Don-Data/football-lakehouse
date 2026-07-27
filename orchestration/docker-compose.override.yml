@@ -1,0 +1,9 @@
+services:
+  scheduler:
+    volumes:
+      - /Users/dondata/Repos/football-lakehouse:/usr/local/airflow/include/project
+      - /Users/dondata/.dbt:/usr/local/airflow/dbt_profiles
+  dag-processor:
+    volumes:
+      - /Users/dondata/Repos/football-lakehouse:/usr/local/airflow/include/project
+      - /Users/dondata/.dbt:/usr/local/airflow/dbt_profiles

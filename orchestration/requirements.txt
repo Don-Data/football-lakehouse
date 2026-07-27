@@ -1,0 +1,6 @@
+astronomer-cosmos
+dbt-duckdb
+dlt[duckdb]
+requests
+python-dotenv
+pyyaml
