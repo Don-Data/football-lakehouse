@@ -1,0 +1,16 @@
+version: 2
+
+models:
+  - name: stg_competitions
+    columns:
+      - name: competition_id
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_matches
+    columns:
+      - name: match_id
+        tests:
+          - unique
+          - not_null
