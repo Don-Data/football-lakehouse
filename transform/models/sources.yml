@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: bronze
-    schema: bronze
+    schema: "{{ target.name }}_bronze"
     tables:
       - name: competitions
       - name: matches

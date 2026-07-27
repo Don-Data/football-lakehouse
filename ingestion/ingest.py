@@ -12,7 +12,7 @@ load_dotenv()
 API_KEY = os.environ["FOOTBALL_DATA_API_KEY"]
 BASE_URL = "https://api.football-data.org/v4"
 PREMIER_LEAGUE_ID = 2021
-
+ENVIRONMENT = "dev"
 
 def _land_raw(resource_name: str, payload: dict) -> str:
     landing_dir = os.path.join("data", "raw", resource_name)
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     pipeline = dlt.pipeline(
         pipeline_name="football_lakehouse",
         destination="duckdb",
-        dataset_name="bronze",
+        dataset_name=f"{ENVIRONMENT}_bronze",
     )
     load_info = pipeline.run(load_fn(landing_file))
     print(load_info)
