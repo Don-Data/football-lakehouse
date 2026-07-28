@@ -52,9 +52,11 @@ def football_lakehouse():
             yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
             date_from = yesterday.isoformat()
             date_to = (yesterday + timedelta(days=1)).isoformat()
+            print(f"No data_interval on this run (manual trigger) - defaulting to yesterday: {date_from} to {date_to}")
         else:
             date_from = data_interval_start.date().isoformat()
             date_to = data_interval_end.date().isoformat()
+            print(f"Using data_interval from this run: {date_from} to {date_to}")
 
         landing_file = ingest.extract_matches(date_from, date_to)
         ingest.run_resource(ingest.load_matches_bronze, landing_file)
