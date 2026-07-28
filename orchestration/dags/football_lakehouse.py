@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from airflow.decorators import dag, task
 from cosmos import DbtTaskGroup, ProjectConfig, ProfileConfig
@@ -44,10 +44,19 @@ def football_lakehouse():
     @task
     def ingest_matches(data_interval_start=None, data_interval_end=None):
         ingest = _load_ingest_module()
-        landing_file = ingest.extract_matches(
-            data_interval_start.date().isoformat(),
-            data_interval_end.date().isoformat(),
-        )
+
+        if data_interval_start is None or data_interval_end is None:
+            # Manual trigger via CLI/UI without an explicit run config doesn't
+            # get a computed data_interval. Fall back to "yesterday" rather
+            # than crash, since that's what an ad-hoc manual run most likely wants.
+            yesterday = datetime.now(timezone.utc).date() - timedelta(days=1)
+            date_from = yesterday.isoformat()
+            date_to = (yesterday + timedelta(days=1)).isoformat()
+        else:
+            date_from = data_interval_start.date().isoformat()
+            date_to = data_interval_end.date().isoformat()
+
+        landing_file = ingest.extract_matches(date_from, date_to)
         ingest.run_resource(ingest.load_matches_bronze, landing_file)
 
     transform_dbt = DbtTaskGroup(
