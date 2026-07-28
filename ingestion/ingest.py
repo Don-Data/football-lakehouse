@@ -18,15 +18,23 @@ ENVIRONMENT = "dev"
 with open(os.path.join(os.path.dirname(__file__), "tracked_competitions.yml")) as f:
     TRACKED_COMPETITION_IDS = yaml.safe_load(f)["competition_ids"]
 
-def backfill_matches(date_from: str, date_to: str) -> None:
-    start = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
 
+def run_resource(load_fn, landing_file: str):
+    """Load a landed raw file into Bronze via the given dlt resource. Shared by
+    the CLI entrypoint, backfill_matches(), and the Airflow DAG."""
     pipeline = dlt.pipeline(
         pipeline_name="football_lakehouse",
         destination="duckdb",
         dataset_name=f"{ENVIRONMENT}_bronze",
     )
+    load_info = pipeline.run(load_fn(landing_file))
+    print(load_info)
+    return load_info
+
+
+def backfill_matches(date_from: str, date_to: str) -> None:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
 
     chunk_start = start
     while chunk_start <= end:
@@ -34,11 +42,11 @@ def backfill_matches(date_from: str, date_to: str) -> None:
         api_date_to = chunk_end + timedelta(days=1)  # API excludes this day, so shift by one
         print(f"Fetching {chunk_start} to {chunk_end} (dateTo sent as {api_date_to})...")
         landing_file = extract_matches(chunk_start.isoformat(), api_date_to.isoformat())
-        load_info = pipeline.run(load_matches_bronze(landing_file))
-        print(load_info)
+        run_resource(load_matches_bronze, landing_file)
         chunk_start = chunk_end + timedelta(days=1)
         if chunk_start <= end:
             time.sleep(7)  # stay under 10 req/min
+
 
 def _land_raw(resource_name: str, payload: dict) -> str:
     landing_dir = os.path.join("data", "raw", resource_name)
@@ -110,6 +118,7 @@ if __name__ == "__main__":
         print("  python ingest.py competitions [landing_file_to_replay]")
         print("  python ingest.py matches <date_from> <date_to>")
         print("  python ingest.py matches replay <landing_file_to_replay>")
+        print("  python ingest.py matches backfill <date_from> <date_to>")
         sys.exit(1)
 
     resource_name = sys.argv[1]
@@ -137,10 +146,4 @@ if __name__ == "__main__":
             print(f"Landed raw response at {landing_file}")
             load_fn = load_matches_bronze
 
-    pipeline = dlt.pipeline(
-        pipeline_name="football_lakehouse",
-        destination="duckdb",
-        dataset_name=f"{ENVIRONMENT}_bronze",
-    )
-    load_info = pipeline.run(load_fn(landing_file))
-    print(load_info)
+    run_resource(load_fn, landing_file)

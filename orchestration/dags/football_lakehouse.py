@@ -16,10 +16,20 @@ profile_config = ProfileConfig(
 )
 
 
+def _load_ingest_module():
+    """Shared bootstrap: make ingestion/ingest.py importable and load its .env."""
+    os.chdir(PROJECT_ROOT)
+    sys.path.insert(0, f"{PROJECT_ROOT}/ingestion")
+    from dotenv import load_dotenv
+    load_dotenv(f"{PROJECT_ROOT}/.env")
+    import ingest
+    return ingest
+
+
 @dag(
     dag_id="football_lakehouse",
-    start_date=datetime(2026, 1, 1),
-    schedule=None,  # manual trigger only, for now
+    start_date=datetime(2025, 8, 1),
+    schedule="@daily",
     catchup=False,
     max_active_tasks=1,
 )
@@ -27,40 +37,18 @@ def football_lakehouse():
 
     @task
     def ingest_competitions():
-        os.chdir(PROJECT_ROOT)
-        sys.path.insert(0, f"{PROJECT_ROOT}/ingestion")
-        from dotenv import load_dotenv
-        load_dotenv(f"{PROJECT_ROOT}/.env")
-
-        import ingest
-
+        ingest = _load_ingest_module()
         landing_file = ingest.extract_competitions()
-        pipeline = ingest.dlt.pipeline(
-            pipeline_name="football_lakehouse",
-            destination="duckdb",
-            dataset_name=f"{ingest.ENVIRONMENT}_bronze",
-        )
-        load_info = pipeline.run(ingest.load_competitions_bronze(landing_file))
-        print(load_info)
+        ingest.run_resource(ingest.load_competitions_bronze, landing_file)
 
     @task
-    def ingest_matches():
-        os.chdir(PROJECT_ROOT)
-        sys.path.insert(0, f"{PROJECT_ROOT}/ingestion")
-        from dotenv import load_dotenv
-        load_dotenv(f"{PROJECT_ROOT}/.env")
-
-        import ingest
-
-        # Small recent window for now, not a full historical backfill.
-        landing_file = ingest.extract_matches("2026-05-22", "2026-05-31")
-        pipeline = ingest.dlt.pipeline(
-            pipeline_name="football_lakehouse",
-            destination="duckdb",
-            dataset_name=f"{ingest.ENVIRONMENT}_bronze",
+    def ingest_matches(data_interval_start=None, data_interval_end=None):
+        ingest = _load_ingest_module()
+        landing_file = ingest.extract_matches(
+            data_interval_start.date().isoformat(),
+            data_interval_end.date().isoformat(),
         )
-        load_info = pipeline.run(ingest.load_matches_bronze(landing_file))
-        print(load_info)
+        ingest.run_resource(ingest.load_matches_bronze, landing_file)
 
     transform_dbt = DbtTaskGroup(
         group_id="transform_dbt",
