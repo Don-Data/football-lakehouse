@@ -7,6 +7,7 @@ import yaml
 import dlt
 import requests
 from dotenv import load_dotenv
+from tenacity import retry, retry_if_exception, wait_exponential, stop_after_attempt
 
 
 load_dotenv()
@@ -17,6 +18,33 @@ ENVIRONMENT = "dev"
 
 with open(os.path.join(os.path.dirname(__file__), "tracked_competitions.yml")) as f:
     TRACKED_COMPETITION_IDS = yaml.safe_load(f)["competition_ids"]
+
+
+def _is_rate_limited(exception: BaseException) -> bool:
+    return (
+        isinstance(exception, requests.exceptions.HTTPError)
+        and exception.response is not None
+        and exception.response.status_code == 429
+    )
+
+
+@retry(
+    retry=retry_if_exception(_is_rate_limited),
+    wait=wait_exponential(multiplier=2, min=4, max=60),
+    stop=stop_after_attempt(5),
+    reraise=True,
+)
+def _get(path: str, params: dict | None = None) -> requests.Response:
+    """GET against the football-data.org API. Retries with exponential backoff
+    only on 429 (rate limited) - any other error (400, 404, ...) fails immediately,
+    since retrying those would just repeat the same mistake."""
+    response = requests.get(
+        f"{BASE_URL}{path}",
+        headers={"X-Auth-Token": API_KEY},
+        params=params,
+    )
+    response.raise_for_status()
+    return response
 
 
 def run_resource(load_fn, landing_file: str):
@@ -59,12 +87,7 @@ def _land_raw(resource_name: str, payload: dict) -> str:
 
 
 def _fetch_competitions() -> dict:
-    response = requests.get(
-        f"{BASE_URL}/competitions",
-        headers={"X-Auth-Token": API_KEY},
-    )
-    response.raise_for_status()
-    return response.json()
+    return _get("/competitions").json()
 
 
 def check_for_new_competitions(competitions_payload: dict) -> None:
@@ -92,16 +115,14 @@ def load_competitions_bronze(file_path: str):
 
 
 def extract_matches(date_from: str, date_to: str) -> str:
-    response = requests.get(
-        f"{BASE_URL}/matches",
-        headers={"X-Auth-Token": API_KEY},
+    response = _get(
+        "/matches",
         params={
             "dateFrom": date_from,
             "dateTo": date_to,
             "competitions": ",".join(str(c) for c in TRACKED_COMPETITION_IDS),
         },
     )
-    response.raise_for_status()
     return _land_raw("matches", response.json())
 
 
