@@ -24,3 +24,6 @@ data/raw/
 
 # VS Code
 .vscode/
+
+# Claude
+.claude/
