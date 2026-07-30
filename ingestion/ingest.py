@@ -19,6 +19,30 @@ ENVIRONMENT = "dev"
 with open(os.path.join(os.path.dirname(__file__), "tracked_competitions.yml")) as f:
     TRACKED_COMPETITION_IDS = yaml.safe_load(f)["competition_ids"]
 
+def _get_pipeline(environment: str) -> dlt.Pipeline:
+    if environment == "dev":
+        return dlt.pipeline(
+            pipeline_name="football_lakehouse",
+            destination="duckdb",
+            dataset_name="dev_bronze",
+        )
+    elif environment == "prod":
+        databricks_destination = dlt.destinations.databricks(
+            credentials={
+                "server_hostname": os.environ["DATABRICKS_WORKSPACE_URL"],
+                "http_path": os.environ["DATABRICKS_HTTP_PATH"],
+                "access_token": os.environ["DATABRICKS_TOKEN"],
+                "catalog": "prod",
+            }
+        )
+        return dlt.pipeline(
+            pipeline_name="football_lakehouse",
+            destination=databricks_destination,
+            dataset_name="bronze",
+        )
+    else:
+        raise ValueError(f"Unknown environment: {environment}")
+
 
 def _is_rate_limited(exception: BaseException) -> bool:
     return (
@@ -47,14 +71,8 @@ def _get(path: str, params: dict | None = None) -> requests.Response:
     return response
 
 
-def run_resource(load_fn, landing_file: str):
-    """Load a landed raw file into Bronze via the given dlt resource. Shared by
-    the CLI entrypoint, backfill_matches(), and the Airflow DAG."""
-    pipeline = dlt.pipeline(
-        pipeline_name="football_lakehouse",
-        destination="duckdb",
-        dataset_name=f"{ENVIRONMENT}_bronze",
-    )
+def run_resource(load_fn, landing_file: str, environment: str = "dev"):
+    pipeline = _get_pipeline(environment)
     load_info = pipeline.run(load_fn(landing_file))
     print(load_info)
     return load_info
