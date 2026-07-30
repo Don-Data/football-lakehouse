@@ -31,6 +31,7 @@ def _get_databricks_client():
 
 def _ensure_landing_volume_exists() -> None:
     from databricks.sdk.errors import ResourceAlreadyExists
+    from databricks.sdk.service.catalog import VolumeType
 
     client = _get_databricks_client()
     try:
@@ -42,7 +43,7 @@ def _ensure_landing_volume_exists() -> None:
             catalog_name="prod",
             schema_name="landing",
             name="raw_files",
-            volume_type="MANAGED",
+            volume_type=VolumeType.MANAGED,
         )
     except ResourceAlreadyExists:
         pass
