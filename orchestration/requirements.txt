@@ -4,3 +4,4 @@ dlt[duckdb]
 requests
 python-dotenv
 pyyaml
+dbt-databricks
