@@ -29,24 +29,30 @@ def _get_databricks_client():
     )
 
 
+def _create_if_missing(create_fn) -> None:
+    from databricks.sdk.errors import DatabricksError
+
+    try:
+        create_fn()
+    except DatabricksError as e:
+        # The SDK doesn't reliably map "already exists" to a specific
+        # exception type (sometimes AlreadyExists, sometimes a generic
+        # BadRequest) - check the message instead of the exception type.
+        if "already exists" not in str(e).lower():
+            raise
+
+
 def _ensure_landing_volume_exists() -> None:
-    from databricks.sdk.errors import ResourceAlreadyExists
     from databricks.sdk.service.catalog import VolumeType
 
     client = _get_databricks_client()
-    try:
-        client.schemas.create(name="landing", catalog_name="prod")
-    except ResourceAlreadyExists:
-        pass
-    try:
-        client.volumes.create(
-            catalog_name="prod",
-            schema_name="landing",
-            name="raw_files",
-            volume_type=VolumeType.MANAGED,
-        )
-    except ResourceAlreadyExists:
-        pass
+    _create_if_missing(lambda: client.schemas.create(name="landing", catalog_name="prod"))
+    _create_if_missing(lambda: client.volumes.create(
+        catalog_name="prod",
+        schema_name="landing",
+        name="raw_files",
+        volume_type=VolumeType.MANAGED,
+    ))
 
 
 def _get_pipeline(environment: str) -> dlt.Pipeline:
