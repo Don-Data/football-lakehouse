@@ -1,23 +1,52 @@
+import argparse
+import io
 import json
 import os
 import sys
 import time
 from datetime import datetime, timezone, date, timedelta
-import yaml
+
 import dlt
 import requests
+import yaml
 from dotenv import load_dotenv
 from tenacity import retry, retry_if_exception, wait_exponential, stop_after_attempt
-
 
 load_dotenv()
 
 API_KEY = os.environ["FOOTBALL_DATA_API_KEY"]
 BASE_URL = "https://api.football-data.org/v4"
-ENVIRONMENT = "dev"
 
 with open(os.path.join(os.path.dirname(__file__), "tracked_competitions.yml")) as f:
     TRACKED_COMPETITION_IDS = yaml.safe_load(f)["competition_ids"]
+
+
+def _get_databricks_client():
+    from databricks.sdk import WorkspaceClient
+    return WorkspaceClient(
+        host=f"https://{os.environ['DATABRICKS_WORKSPACE_URL']}",
+        token=os.environ["DATABRICKS_TOKEN"],
+    )
+
+
+def _ensure_landing_volume_exists() -> None:
+    from databricks.sdk.errors import ResourceAlreadyExists
+
+    client = _get_databricks_client()
+    try:
+        client.schemas.create(name="landing", catalog_name="prod")
+    except ResourceAlreadyExists:
+        pass
+    try:
+        client.volumes.create(
+            catalog_name="prod",
+            schema_name="landing",
+            name="raw_files",
+            volume_type="MANAGED",
+        )
+    except ResourceAlreadyExists:
+        pass
+
 
 def _get_pipeline(environment: str) -> dlt.Pipeline:
     if environment == "dev":
@@ -42,6 +71,13 @@ def _get_pipeline(environment: str) -> dlt.Pipeline:
         )
     else:
         raise ValueError(f"Unknown environment: {environment}")
+
+
+def run_resource(load_fn, landing_file: str, environment: str = "dev"):
+    pipeline = _get_pipeline(environment)
+    load_info = pipeline.run(load_fn(landing_file))
+    print(load_info)
+    return load_info
 
 
 def _is_rate_limited(exception: BaseException) -> bool:
@@ -71,37 +107,37 @@ def _get(path: str, params: dict | None = None) -> requests.Response:
     return response
 
 
-def run_resource(load_fn, landing_file: str, environment: str = "dev"):
-    pipeline = _get_pipeline(environment)
-    load_info = pipeline.run(load_fn(landing_file))
-    print(load_info)
-    return load_info
+def _land_raw(resource_name: str, payload: dict, environment: str) -> str:
+    if environment == "dev":
+        landing_dir = os.path.join("data", "raw", resource_name)
+        os.makedirs(landing_dir, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        file_path = os.path.join(landing_dir, f"{timestamp}.json")
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+        return file_path
+
+    elif environment == "prod":
+        _ensure_landing_volume_exists()
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        volume_path = f"/Volumes/prod/landing/raw_files/{resource_name}/{timestamp}.json"
+        client = _get_databricks_client()
+        data = json.dumps(payload).encode("utf-8")
+        client.files.upload(volume_path, io.BytesIO(data), overwrite=True)
+        return volume_path
+
+    else:
+        raise ValueError(f"Unknown environment: {environment}")
 
 
-def backfill_matches(date_from: str, date_to: str) -> None:
-    start = date.fromisoformat(date_from)
-    end = date.fromisoformat(date_to)
-
-    chunk_start = start
-    while chunk_start <= end:
-        chunk_end = min(chunk_start + timedelta(days=9), end)  # last day we want included
-        api_date_to = chunk_end + timedelta(days=1)  # API excludes this day, so shift by one
-        print(f"Fetching {chunk_start} to {chunk_end} (dateTo sent as {api_date_to})...")
-        landing_file = extract_matches(chunk_start.isoformat(), api_date_to.isoformat())
-        run_resource(load_matches_bronze, landing_file)
-        chunk_start = chunk_end + timedelta(days=1)
-        if chunk_start <= end:
-            time.sleep(7)  # stay under 10 req/min
-
-
-def _land_raw(resource_name: str, payload: dict) -> str:
-    landing_dir = os.path.join("data", "raw", resource_name)
-    os.makedirs(landing_dir, exist_ok=True)
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    file_path = os.path.join(landing_dir, f"{timestamp}.json")
-    with open(file_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f)
-    return file_path
+def _read_landed_file(file_path: str) -> dict:
+    if file_path.startswith("/Volumes/"):
+        client = _get_databricks_client()
+        data = client.files.download(file_path).contents.read()
+        return json.loads(data)
+    else:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
 
 
 def _fetch_competitions() -> dict:
@@ -119,20 +155,19 @@ def check_for_new_competitions(competitions_payload: dict) -> None:
         )
 
 
-def extract_competitions() -> str:
+def extract_competitions(environment: str = "dev") -> str:
     payload = _fetch_competitions()
     check_for_new_competitions(payload)
-    return _land_raw("competitions", payload)
+    return _land_raw("competitions", payload, environment)
 
 
 @dlt.resource(name="competitions", write_disposition="replace")
 def load_competitions_bronze(file_path: str):
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = _read_landed_file(file_path)
     yield data["competitions"]
 
 
-def extract_matches(date_from: str, date_to: str) -> str:
+def extract_matches(date_from: str, date_to: str, environment: str = "dev") -> str:
     response = _get(
         "/matches",
         params={
@@ -141,23 +176,44 @@ def extract_matches(date_from: str, date_to: str) -> str:
             "competitions": ",".join(str(c) for c in TRACKED_COMPETITION_IDS),
         },
     )
-    return _land_raw("matches", response.json())
+    return _land_raw("matches", response.json(), environment)
 
 
 @dlt.resource(name="matches", write_disposition="merge", primary_key="id")
 def load_matches_bronze(file_path: str):
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    data = _read_landed_file(file_path)
     yield data["matches"]
 
 
+def backfill_matches(date_from: str, date_to: str, environment: str = "dev") -> None:
+    start = date.fromisoformat(date_from)
+    end = date.fromisoformat(date_to)
+
+    chunk_start = start
+    while chunk_start <= end:
+        chunk_end = min(chunk_start + timedelta(days=9), end)
+        api_date_to = chunk_end + timedelta(days=1)
+        print(f"Fetching {chunk_start} to {chunk_end} (dateTo sent as {api_date_to})...")
+        landing_file = extract_matches(chunk_start.isoformat(), api_date_to.isoformat(), environment)
+        run_resource(load_matches_bronze, landing_file, environment)
+        chunk_start = chunk_end + timedelta(days=1)
+        if chunk_start <= end:
+            time.sleep(7)
+
+
 if __name__ == "__main__":
+    environment = "dev"
+    if "--env" in sys.argv:
+        idx = sys.argv.index("--env")
+        environment = sys.argv[idx + 1]
+        del sys.argv[idx:idx + 2]
+
     if len(sys.argv) < 2 or sys.argv[1] not in ("competitions", "matches"):
         print("Usage:")
-        print("  python ingest.py competitions [landing_file_to_replay]")
-        print("  python ingest.py matches <date_from> <date_to>")
-        print("  python ingest.py matches replay <landing_file_to_replay>")
-        print("  python ingest.py matches backfill <date_from> <date_to>")
+        print("  python ingest.py competitions [landing_file_to_replay] [--env dev|prod]")
+        print("  python ingest.py matches <date_from> <date_to> [--env dev|prod]")
+        print("  python ingest.py matches replay <landing_file_to_replay> [--env dev|prod]")
+        print("  python ingest.py matches backfill <date_from> <date_to> [--env dev|prod]")
         sys.exit(1)
 
     resource_name = sys.argv[1]
@@ -168,7 +224,7 @@ if __name__ == "__main__":
             landing_file = sys.argv[2]
             print(f"Replaying from existing landing file: {landing_file}")
         else:
-            landing_file = extract_competitions()
+            landing_file = extract_competitions(environment)
             print(f"Landed raw response at {landing_file}")
 
     else:  # matches
@@ -177,12 +233,12 @@ if __name__ == "__main__":
             print(f"Replaying from existing landing file: {landing_file}")
             load_fn = load_matches_bronze
         elif sys.argv[2] == "backfill":
-            backfill_matches(sys.argv[3], sys.argv[4])
+            backfill_matches(sys.argv[3], sys.argv[4], environment)
             sys.exit(0)
         else:
             date_from, date_to = sys.argv[2], sys.argv[3]
-            landing_file = extract_matches(date_from, date_to)
+            landing_file = extract_matches(date_from, date_to, environment)
             print(f"Landed raw response at {landing_file}")
             load_fn = load_matches_bronze
 
-    run_resource(load_fn, landing_file)
+    run_resource(load_fn, landing_file, environment)

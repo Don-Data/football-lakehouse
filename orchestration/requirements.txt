@@ -5,3 +5,4 @@ requests
 python-dotenv
 pyyaml
 dbt-databricks
+databricks-sdk
