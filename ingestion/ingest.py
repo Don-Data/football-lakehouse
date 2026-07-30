@@ -80,7 +80,7 @@ def _get_pipeline(environment: str) -> dlt.Pipeline:
         raise ValueError(f"Unknown environment: {environment}")
 
 
-def run_resource(load_fn, landing_file: str, environment: str = "dev"):
+def run_resource(load_fn, landing_file: str | list[str], environment: str = "dev"):
     pipeline = _get_pipeline(environment)
     load_info = pipeline.run(load_fn(landing_file))
     print(load_info)
@@ -187,25 +187,40 @@ def extract_matches(date_from: str, date_to: str, environment: str = "dev") -> s
 
 
 @dlt.resource(name="matches", write_disposition="merge", primary_key="id")
-def load_matches_bronze(file_path: str):
-    data = _read_landed_file(file_path)
-    yield data["matches"]
+def load_matches_bronze(file_paths: str | list[str]):
+    """Accepts a single landing file (normal case) or a list of them
+    (backfill_matches, so many chunks load in one pipeline.run() call
+    instead of paying per-load overhead once per chunk)."""
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
+    for file_path in file_paths:
+        data = _read_landed_file(file_path)
+        yield data["matches"]
 
 
 def backfill_matches(date_from: str, date_to: str, environment: str = "dev") -> None:
     start = date.fromisoformat(date_from)
     end = date.fromisoformat(date_to)
 
+    # Extraction still has to be chunked (the API's own 10-day window limit)
+    # and rate-limited, but loading is deliberately NOT done per-chunk - each
+    # dlt load pays a large fixed overhead (schema checks, staging setup,
+    # merge statements) regardless of how much data it carries, so loading
+    # once at the end instead of once per chunk cuts a ~60-chunk backfill
+    # from roughly an hour down to a couple of minutes.
+    landing_files = []
     chunk_start = start
     while chunk_start <= end:
         chunk_end = min(chunk_start + timedelta(days=9), end)
         api_date_to = chunk_end + timedelta(days=1)
         print(f"Fetching {chunk_start} to {chunk_end} (dateTo sent as {api_date_to})...")
-        landing_file = extract_matches(chunk_start.isoformat(), api_date_to.isoformat(), environment)
-        run_resource(load_matches_bronze, landing_file, environment)
+        landing_files.append(extract_matches(chunk_start.isoformat(), api_date_to.isoformat(), environment))
         chunk_start = chunk_end + timedelta(days=1)
         if chunk_start <= end:
-            time.sleep(7)
+            time.sleep(7)  # stay under 10 req/min
+
+    print(f"Landed {len(landing_files)} files, loading all at once...")
+    run_resource(load_matches_bronze, landing_files, environment)
 
 
 if __name__ == "__main__":
