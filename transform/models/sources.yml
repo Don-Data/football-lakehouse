@@ -2,7 +2,7 @@ version: 2
 
 sources:
   - name: bronze
-    schema: "{{ target.name }}_bronze"
+    schema: "{{ 'bronze' if target.type == 'databricks' else target.name ~ '_bronze' }}"
     tables:
       - name: competitions
       - name: matches

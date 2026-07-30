@@ -8,10 +8,12 @@ from cosmos import DbtTaskGroup, ProjectConfig, ProfileConfig
 PROJECT_ROOT = "/usr/local/airflow/include/project"
 DBT_PROJECT_PATH = f"{PROJECT_ROOT}/transform"
 PROFILES_YML_PATH = "/usr/local/airflow/dbt_profiles/profiles.yml"
+ENVIRONMENT = "prod"  # the scheduled pipeline runs against prod (Databricks);
+                      # dev (DuckDB) is for manual/on-demand local testing only
 
 profile_config = ProfileConfig(
     profile_name="transform",
-    target_name="dev",
+    target_name=ENVIRONMENT,
     profiles_yml_filepath=PROFILES_YML_PATH,
 )
 
@@ -38,8 +40,8 @@ def football_lakehouse():
     @task
     def ingest_competitions():
         ingest = _load_ingest_module()
-        landing_file = ingest.extract_competitions()
-        ingest.run_resource(ingest.load_competitions_bronze, landing_file)
+        landing_file = ingest.extract_competitions(ENVIRONMENT)
+        ingest.run_resource(ingest.load_competitions_bronze, landing_file, ENVIRONMENT)
 
     @task
     def ingest_matches(data_interval_start=None, data_interval_end=None):
@@ -58,8 +60,8 @@ def football_lakehouse():
             date_to = data_interval_end.date().isoformat()
             print(f"Using data_interval from this run: {date_from} to {date_to}")
 
-        landing_file = ingest.extract_matches(date_from, date_to)
-        ingest.run_resource(ingest.load_matches_bronze, landing_file)
+        landing_file = ingest.extract_matches(date_from, date_to, ENVIRONMENT)
+        ingest.run_resource(ingest.load_matches_bronze, landing_file, ENVIRONMENT)
 
     transform_dbt = DbtTaskGroup(
         group_id="transform_dbt",
