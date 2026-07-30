@@ -21,6 +21,10 @@ select
     competitions.competition_name,
     competitions.area_name,
 
+    matches.season_id,
+    matches.season_start_date,
+    matches.season_end_date,
+
     matches.full_time_home_goals,
     matches.full_time_away_goals,
 

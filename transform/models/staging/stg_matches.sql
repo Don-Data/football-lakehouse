@@ -16,6 +16,10 @@ select
     competition__id as competition_id,
     competition__name as competition_name,
 
+    season__id as season_id,
+    season__start_date as season_start_date,
+    season__end_date as season_end_date,
+
     score__winner as score_winner,
     score__full_time__home as full_time_home_goals,
     score__full_time__away as full_time_away_goals,

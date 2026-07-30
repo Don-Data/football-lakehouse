@@ -4,6 +4,7 @@ with team_matches as (
 
 aggregated as (
     select
+        season_id,
         competition_id,
         competition_name,
         team_id,
@@ -17,14 +18,14 @@ aggregated as (
         sum(goals_for) - sum(goals_against) as goal_difference,
         sum(points_earned) as points
     from team_matches
-    group by competition_id, competition_name, team_id, team_name
+    group by season_id, competition_id, competition_name, team_id, team_name
 )
 
 select
     *,
     row_number() over (
-        partition by competition_id
+        partition by season_id, competition_id
         order by points desc, goal_difference desc, goals_for desc
     ) as position
 from aggregated
-order by position
+order by season_id, position

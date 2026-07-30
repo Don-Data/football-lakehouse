@@ -30,10 +30,22 @@ def _load_ingest_module():
 
 @dag(
     dag_id="football_lakehouse",
-    start_date=datetime(2025, 8, 1),
+    # Deliberately NOT 2025-08-01 (the season start) - that historical range
+    # was already loaded via the dedicated backfill_matches() tool. This
+    # start_date only needs to cover when real @daily scheduling began, so
+    # catchup below only ever protects against a few days of Airflow
+    # downtime, not an accidental ~365-day replay through the slow
+    # per-day incremental path.
+    start_date=datetime(2026, 7, 29),
     schedule="@daily",
-    catchup=False,
+    catchup=True,  # backfill any day missed while Airflow was down, rather
+                   # than silently skipping straight to "now" - avoids
+                   # holes in the timeline from downtime
     max_active_tasks=1,
+    default_args={
+        "retries": 3,
+        "retry_delay": timedelta(minutes=5),
+    },
 )
 def football_lakehouse():
 
