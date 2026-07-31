@@ -56,9 +56,14 @@ def _ensure_landing_volume_exists() -> None:
 
 
 def _get_pipeline(environment: str) -> dlt.Pipeline:
+    # Distinct pipeline_name per environment - dlt persists pipeline state
+    # keyed by this name, so sharing one name across two destinations made
+    # it warn on every run that the destination in its saved state didn't
+    # match the one just requested (harmless, but pointless noise to carry
+    # forward, and a state-tracking mismatch not worth risking later).
     if environment == "dev":
         return dlt.pipeline(
-            pipeline_name="football_lakehouse",
+            pipeline_name="football_lakehouse_dev",
             destination="duckdb",
             dataset_name="dev_bronze",
         )
@@ -72,7 +77,7 @@ def _get_pipeline(environment: str) -> dlt.Pipeline:
             }
         )
         return dlt.pipeline(
-            pipeline_name="football_lakehouse",
+            pipeline_name="football_lakehouse_prod",
             destination=databricks_destination,
             dataset_name="bronze",
         )
