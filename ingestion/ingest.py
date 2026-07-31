@@ -64,7 +64,12 @@ def _get_pipeline(environment: str) -> dlt.Pipeline:
     if environment == "dev":
         return dlt.pipeline(
             pipeline_name="football_lakehouse_dev",
-            destination="duckdb",
+            # Explicit path, decoupled from pipeline_name - dlt otherwise
+            # defaults the DuckDB file name to match pipeline_name, which
+            # would have silently forked onto a new file the moment
+            # pipeline_name changed, orphaning it from what dbt's `dev`
+            # target actually points to.
+            destination=dlt.destinations.duckdb("football_lakehouse.duckdb"),
             dataset_name="dev_bronze",
         )
     elif environment == "prod":
