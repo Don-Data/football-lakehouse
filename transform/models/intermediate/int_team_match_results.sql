@@ -10,6 +10,7 @@ home_perspective as (
         competition_id,
         competition_name,
         season_id,
+        season_name,
 
         home_team_id as team_id,
         home_team_name as team_name,
@@ -38,6 +39,7 @@ away_perspective as (
         competition_id,
         competition_name,
         season_id,
+        season_name,
 
         away_team_id as team_id,
         away_team_name as team_name,

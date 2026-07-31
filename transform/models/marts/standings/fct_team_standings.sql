@@ -5,6 +5,7 @@ with team_matches as (
 aggregated as (
     select
         season_id,
+        season_name,
         competition_id,
         competition_name,
         team_id,
@@ -18,7 +19,7 @@ aggregated as (
         sum(goals_for) - sum(goals_against) as goal_difference,
         sum(points_earned) as points
     from team_matches
-    group by season_id, competition_id, competition_name, team_id, team_name
+    group by season_id, season_name, competition_id, competition_name, team_id, team_name
 )
 
 select

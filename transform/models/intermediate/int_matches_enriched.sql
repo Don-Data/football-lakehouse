@@ -24,6 +24,7 @@ select
     matches.season_id,
     matches.season_start_date,
     matches.season_end_date,
+    matches.season_name,
 
     matches.full_time_home_goals,
     matches.full_time_away_goals,

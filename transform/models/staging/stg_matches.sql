@@ -19,6 +19,10 @@ select
     season__id as season_id,
     season__start_date as season_start_date,
     season__end_date as season_end_date,
+    cast(extract(year from cast(season__start_date as date)) as string)
+        || '-' ||
+        cast(extract(year from cast(season__end_date as date)) as string)
+        as season_name,
 
     score__winner as score_winner,
     score__full_time__home as full_time_home_goals,
