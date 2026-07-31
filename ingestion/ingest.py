@@ -1,4 +1,3 @@
-import argparse
 import io
 import json
 import os
@@ -88,6 +87,7 @@ def _get_pipeline(environment: str) -> dlt.Pipeline:
         )
     else:
         raise ValueError(f"Unknown environment: {environment}")
+    
 
 
 def run_resource(load_fn, landing_file: str | list[str], environment: str = "dev"):
