@@ -31,8 +31,9 @@ def _load_ingest_module():
 @dag(
     dag_id="football_lakehouse",
     # Deliberately NOT 2025-08-01 (the season start) - that historical range
-    # was already loaded via the dedicated backfill_matches() tool. This
-    # start_date only needs to cover when real @daily scheduling began, so
+    # was already loaded via ingest.load_matches() run manually for a wide
+    # date range. This start_date only needs to cover when real @daily
+    # scheduling began, so
     # catchup below only ever protects against a few days of Airflow
     # downtime, not an accidental ~365-day replay through the slow
     # per-day incremental path.
@@ -72,8 +73,7 @@ def football_lakehouse():
             date_to = data_interval_end.date().isoformat()
             print(f"Using data_interval from this run: {date_from} to {date_to}")
 
-        landing_file = ingest.extract_matches(date_from, date_to, ENVIRONMENT)
-        ingest.run_resource(ingest.load_matches_bronze, landing_file, ENVIRONMENT)
+        ingest.load_matches(date_from, date_to, ENVIRONMENT)
 
     transform_dbt = DbtTaskGroup(
         group_id="transform_dbt",

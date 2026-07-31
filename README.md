@@ -32,7 +32,7 @@ FOOTBALL_DATA_API_KEY=your_key_here
 
 ```powershell
 python ingestion/ingest.py competitions
-python ingestion/ingest.py matches backfill 2025-08-01 2026-05-31
+python ingestion/ingest.py matches 2025-08-01 2026-05-31
 
 cd transform
 dbt run

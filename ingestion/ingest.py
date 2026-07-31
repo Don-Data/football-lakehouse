@@ -215,9 +215,9 @@ def extract_matches(date_from: str, date_to: str, environment: str = "dev") -> s
 
 @dlt.resource(name="matches", write_disposition="merge", primary_key="id")
 def load_matches_bronze(file_paths: str | list[str]):
-    """Accepts a single landing file (normal case) or a list of them
-    (backfill_matches, so many chunks load in one pipeline.run() call
-    instead of paying per-load overhead once per chunk)."""
+    """Accepts a single landing file or a list of them (load_matches passes
+    a list so many chunks load in one pipeline.run() call instead of paying
+    per-load overhead once per chunk)."""
     if isinstance(file_paths, str):
         file_paths = [file_paths]
     for file_path in file_paths:
@@ -225,16 +225,17 @@ def load_matches_bronze(file_paths: str | list[str]):
         yield data["matches"]
 
 
-def backfill_matches(date_from: str, date_to: str, environment: str = "dev") -> None:
+def load_matches(date_from: str, date_to: str, environment: str = "dev") -> None:
+    """Extract and load matches for the given date range. Chunks internally
+    to respect the API's 10-day window limit and rate limit, landing each
+    chunk separately, then loads all landed files in one consolidated
+    pipeline.run() call - works identically for a single day (the daily
+    incremental case) or a multi-year range (a historical backfill), so
+    there's no separate "normal load" vs "backfill" code path to keep in
+    sync."""
     start = date.fromisoformat(date_from)
     end = date.fromisoformat(date_to)
 
-    # Extraction still has to be chunked (the API's own 10-day window limit)
-    # and rate-limited, but loading is deliberately NOT done per-chunk - each
-    # dlt load pays a large fixed overhead (schema checks, staging setup,
-    # merge statements) regardless of how much data it carries, so loading
-    # once at the end instead of once per chunk cuts a ~60-chunk backfill
-    # from roughly an hour down to a couple of minutes.
     landing_files = []
     chunk_start = start
     while chunk_start <= end:
@@ -246,7 +247,7 @@ def backfill_matches(date_from: str, date_to: str, environment: str = "dev") -> 
         if chunk_start <= end:
             time.sleep(7)  # stay under 10 req/min
 
-    print(f"Landed {len(landing_files)} files, loading all at once...")
+    print(f"Landed {len(landing_files)} file(s), loading all at once...")
     run_resource(load_matches_bronze, landing_files, environment)
 
 
@@ -262,32 +263,24 @@ if __name__ == "__main__":
         print("  python ingest.py competitions [landing_file_to_replay] [--env dev|prod]")
         print("  python ingest.py matches <date_from> <date_to> [--env dev|prod]")
         print("  python ingest.py matches replay <landing_file_to_replay> [--env dev|prod]")
-        print("  python ingest.py matches backfill <date_from> <date_to> [--env dev|prod]")
         sys.exit(1)
 
     resource_name = sys.argv[1]
 
     if resource_name == "competitions":
-        load_fn = load_competitions_bronze
         if len(sys.argv) > 2:
             landing_file = sys.argv[2]
             print(f"Replaying from existing landing file: {landing_file}")
         else:
             landing_file = extract_competitions(environment)
             print(f"Landed raw response at {landing_file}")
+        run_resource(load_competitions_bronze, landing_file, environment)
 
     else:  # matches
         if sys.argv[2] == "replay":
             landing_file = sys.argv[3]
             print(f"Replaying from existing landing file: {landing_file}")
-            load_fn = load_matches_bronze
-        elif sys.argv[2] == "backfill":
-            backfill_matches(sys.argv[3], sys.argv[4], environment)
-            sys.exit(0)
+            run_resource(load_matches_bronze, landing_file, environment)
         else:
             date_from, date_to = sys.argv[2], sys.argv[3]
-            landing_file = extract_matches(date_from, date_to, environment)
-            print(f"Landed raw response at {landing_file}")
-            load_fn = load_matches_bronze
-
-    run_resource(load_fn, landing_file, environment)
+            load_matches(date_from, date_to, environment)
