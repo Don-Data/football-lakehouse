@@ -115,22 +115,39 @@ def _get(path: str, params: dict | None = None) -> requests.Response:
 
 
 def _land_raw(resource_name: str, payload: dict, environment: str) -> str:
+    now = datetime.now(timezone.utc)
+    timestamp = now.strftime("%Y%m%dT%H%M%SZ")
+    metadata = {
+        "source": "football-data.org",
+        "resource": resource_name,
+        "ingested_at": now.isoformat(),
+        "record_count": len(payload.get(resource_name, [])),
+    }
+
     if environment == "dev":
         landing_dir = os.path.join("data", "raw", resource_name)
         os.makedirs(landing_dir, exist_ok=True)
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
         file_path = os.path.join(landing_dir, f"{timestamp}.json")
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(payload, f)
+
+        metadata_path = os.path.join(landing_dir, f"{timestamp}.metadata.json")
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f)
+
         return file_path
 
     elif environment == "prod":
         _ensure_landing_volume_exists()
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        volume_path = f"/Volumes/prod/landing/raw_files/{resource_name}/{timestamp}.json"
         client = _get_databricks_client()
-        data = json.dumps(payload).encode("utf-8")
-        client.files.upload(volume_path, io.BytesIO(data), overwrite=True)
+
+        volume_path = f"/Volumes/prod/landing/raw_files/{resource_name}/{timestamp}.json"
+        client.files.upload(volume_path, io.BytesIO(json.dumps(payload).encode("utf-8")), overwrite=True)
+
+        metadata_path = f"/Volumes/prod/landing/raw_files/{resource_name}/{timestamp}.metadata.json"
+        client.files.upload(metadata_path, io.BytesIO(json.dumps(metadata).encode("utf-8")), overwrite=True)
+
         return volume_path
 
     else:
